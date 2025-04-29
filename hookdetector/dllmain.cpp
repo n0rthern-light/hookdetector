@@ -265,7 +265,63 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
     objAttr.ObjectName = (DWORD64)&uniName;
     objAttr.Attributes = OBJ_CASE_INSENSITIVE;
 
-    return syscall(0x37, (DWORD64)pOutHandle, SECTION_MAP_READ, (DWORD64)(ULONG_PTR)&objAttr);
+    DWORD64 handle64 = NULL;
+    const auto ret = syscall(0x37, (DWORD64)(ULONG_PTR)&handle64, SECTION_MAP_READ, (DWORD64)(ULONG_PTR)&objAttr);
+
+    if (NT_SUCCESS(ret)) {
+        *pOutHandle = (HANDLE)handle64;
+    }
+
+    return ret;
+}
+
+NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
+{
+    DWORD64 baseAddress = 0;
+    DWORD64 viewSize = 0;
+    DWORD64 sectionOffset = 0;
+    DWORD64 zeroBits = 0;
+    DWORD64 commitSize = 0;
+    DWORD64 inherit = 1; // ViewShare
+    DWORD64 allocType = 0;
+    DWORD64 protect = PAGE_READONLY;
+
+    DWORD64 processHandle = (DWORD64)-1;
+    DWORD64 sectionHandle = (DWORD64)hSection;
+
+    /*
+  IN HANDLE               SectionHandle,
+  IN HANDLE               ProcessHandle,
+  IN OUT PVOID            *BaseAddress OPTIONAL,
+  IN ULONG                ZeroBits OPTIONAL,
+  IN ULONG                CommitSize,
+  IN OUT PLARGE_INTEGER   SectionOffset OPTIONAL,
+  IN OUT PULONG           ViewSize,
+  IN                      InheritDisposition,
+  IN ULONG                AllocationType OPTIONAL,
+  IN ULONG                Protect );
+    */
+
+    const auto ret = syscall(
+        0x28,
+        sectionHandle,
+        processHandle,
+        (DWORD64)(ULONG_PTR)&baseAddress,
+        zeroBits,
+// ----
+        protect,
+        allocType,
+        inherit,
+        viewSize,
+        sectionOffset,
+        commitSize
+    );
+
+    if (NT_SUCCESS(ret)) {
+        *ppOutAddress = (PVOID)baseAddress;
+    }
+
+    return ret;
 }
 
 bool DetectHooks()
@@ -276,13 +332,20 @@ bool DetectHooks()
 
     PRINT(L"We are loaded.\n");
 
-    HANDLE handle;
-    auto ret = SyscallNtOpenSection(L"\\KnownDlls\\kernel32.dll", &handle);
+    //PVOID baseAddress = NULL;
+    HANDLE handle = NULL;
+    NTSTATUS ret = SyscallNtOpenSection(L"\\KnownDlls\\kernel32.dll", &handle);
 
     PRINT(L"RET: 0x%08X\n", ret);
     PRINT(L"hSection: 0x%08X\n", handle);
 
+    ret = SyscallNtMapViewOfSection(handle, NULL);
+
+    PRINT(L"RET: 0x%08X\n", ret);
+    PRINT(L"baseAddress: 0x%08X\n", NULL);
+
     return false;
+
 
     const auto fnProcPrint = [](PVOID addr, const char* name) -> bool {
         wchar_t wname[256];
