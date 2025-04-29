@@ -32,6 +32,12 @@ typedef struct _UNICODE_STRING {
     PWSTR  Buffer;
 } UNICODE_STRING, * PUNICODE_STRING;
 
+typedef struct _UNICODE_STRING64 {
+    USHORT  Length;
+    USHORT  MaximumLength;
+    DWORD64 Buffer;
+} UNICODE_STRING64, * PUNICODE_STRING64;
+
 typedef struct _LDR_DATA_TABLE_ENTRY {
     LIST_ENTRY InLoadOrderLinks;
     LIST_ENTRY InMemoryOrderLinks;
@@ -74,14 +80,24 @@ typedef struct _PEB {
 
 // --- nt functions
 
-typedef struct _OBJECT_ATTRIBUTES {
-    ULONG           Length;
-    HANDLE          RootDirectory;
+typedef struct _OBJECT_ATTRIBUTES
+{
+    ULONG Length;
+    HANDLE RootDirectory;
     PUNICODE_STRING ObjectName;
-    ULONG           Attributes;
-    PVOID           SecurityDescriptor;
-    PVOID           SecurityQualityOfService;
-} OBJECT_ATTRIBUTES, *POBJECT_ATTRIBUTES;
+    ULONG Attributes;
+    PVOID SecurityDescriptor; // PSECURITY_DESCRIPTOR;
+    PVOID SecurityQualityOfService; // PSECURITY_QUALITY_OF_SERVICE
+} OBJECT_ATTRIBUTES, * POBJECT_ATTRIBUTES;
+
+typedef struct _OBJECT_ATTRIBUTES64 {
+    DWORD32         Length;
+    DWORD64         RootDirectory;
+    DWORD64         ObjectName;
+    DWORD32         Attributes;
+    DWORD64         SecurityDescriptor;
+    DWORD64         SecurityQualityOfService;
+} OBJECT_ATTRIBUTES64, *POBJECT_ATTRIBUTES64;
 
 typedef NTSTATUS(NTAPI* pNtOpenSection64)(
     PHANDLE SectionHandle,
@@ -149,6 +165,21 @@ void InitUnicodeString(PUNICODE_STRING DestinationString, PCWSTR SourceString)
     }
 
     DestinationString->Buffer = (PWSTR)SourceString;
+    DestinationString->Length = (USHORT)(length * sizeof(WCHAR));
+    DestinationString->MaximumLength = (USHORT)(DestinationString->Length + sizeof(WCHAR));
+}
+
+void InitUnicodeString64(PUNICODE_STRING64 DestinationString, PCWSTR SourceString)
+{
+    SIZE_T length = 0;
+    if (SourceString)
+    {
+        while (SourceString[length] != L'\0') {
+            length++;
+        }
+    }
+
+    DestinationString->Buffer = (DWORD64)SourceString;
     DestinationString->Length = (USHORT)(length * sizeof(WCHAR));
     DestinationString->MaximumLength = (USHORT)(DestinationString->Length + sizeof(WCHAR));
 }
@@ -226,43 +257,48 @@ void PrintRealModules()
 #pragma code_seg(push, myseg, ".text$heaven")
 __declspec(allocate(".text$heaven"))
 unsigned char HeavenGateShellcode[] = {
+    // mov rax, [rsi]
+    0x48, 0x8B, 0x06,
     // mov rcx, [rsi + 8]
     0x48, 0x8B, 0x4E, 0x08,
+    // mov r10, rcx - syscall convention (first arg in r10)
+    0x49, 0x89, 0xca,
     // mov rdx, [rsi + 16]
     0x48, 0x8B, 0x56, 0x10,
     // mov r8, [rsi + 24]
     0x4C, 0x8B, 0x46, 0x18,
     // mov r9, [rsi + 32]
     0x4C, 0x8B, 0x4E, 0x20,
-    // mov rax, [rsi]
-    0x48, 0x8B, 0x06,
-    // sub rsp, 0x28
-    0x48, 0x83, 0xEC, 0x28,
-    // mov [rsp+0x20], [rsi+40] ; Arg5
-    0x48, 0x8B, 0x56, 0x28,
-    0x48, 0x89, 0x54, 0x24, 0x20,
-    // mov [rsp+0x28], [rsi+48] ; Arg6
-    0x48, 0x8B, 0x56, 0x30,
-    0x48, 0x89, 0x54, 0x24, 0x28,
+    // push qword ptr [rsi + 40] ; Arg 5
+    0xFF, 0x76, 0x28,
+    // push qword ptr [rsi + 48] ; Arg 6
+    0xFF, 0x76, 0x30,
     // syscall
     0x0F, 0x05,
-    // add rsp, 0x28
-    0x48, 0x83, 0xC4, 0x28,
-    // mov [rsi], rax ; Save return value
-    0x48, 0x89, 0x06,
+    // add rsp, 16 ; cleanup stack 
+    0x48, 0x83, 0xc4, 0x10,
+    // mov [rsi + 60], rax ; Save return value
+    0x48, 0x89, 0x46, 0x3c,
 
-    // Now dynamically push return address
-    // push 0x23
-    0x6A, 0x23,
+    // -- exit procedure
+
+    // sub esp, 0x8
+    0x83, 0xec, 0x08,
+    // mov eax, 0x23
+    0xb8, 0x23, 0x00, 0x00, 0x00,
+    // mov    DWORD PTR[esp + 0x4],eax
+    0x67, 0x89, 0x44, 0x24, 0x04,
     // mov eax, [rsi + 56]
     0x8B, 0x46, 0x38,
-    // push rax
-    0x50,
+    // mov    DWORD PTR[esp],eax
+    0x67, 0x89, 0x04, 0x24,
+
     // retf
     0xCB
 };
 #pragma code_seg(pop, myseg)
 
+#pragma pack(push, 1)
 typedef struct _GATE_SYSCALL {
     DWORD64 SyscallId;    // [0]
     DWORD64 Arg1;         // [8]
@@ -271,41 +307,42 @@ typedef struct _GATE_SYSCALL {
     DWORD64 Arg4;         // [32]
     DWORD64 Arg5;         // [40]
     DWORD64 Arg6;         // [48]
-    DWORD32 ReturnAddress32; // [56]  <- NEW FIELD
+    DWORD ReturnAddress;  // [56]
+    DWORD64 ReturnValue;  // [60]
 } GATE_SYSCALL, * PGATE_SYSCALL;
+#pragma pack(pop) 
 
-__declspec(naked) NTSTATUS HeavensGateSyscall(PGATE_SYSCALL pCall) {
+__declspec(naked) DWORD64 HeavensGateSyscall(PGATE_SYSCALL pCall) {
     __asm {
         // Prologue (save state)
-        pushad
-        pushfd
+        //pushad
+        //pushfd
+        push ebp
+        mov ebp, esp
 
         // Get pointer to PGATE_SYSCALL
-        mov esi, [esp + 0x24] // 32-bit stack frame: after pushad+pushfd
+        mov esi, [ebp + 8] // mov esi, pCall
+        //add esi, 0x24
 
-        // Load return address into [esi + 56]
-        // We need to manually compute it without labels.
-        // Trick: After retf, execution will continue to the next instruction on the stack.
-        // So just push current esp + 10h
-
-        lea eax, [esp + 0x10]    // address after retf
-        mov[esi + 56], eax
-
-        // Jump into 64-bit HeavenGateShellcode
+        mov edx, prologue
+        mov dword ptr[esi + 56], edx // store ReturnAddress
         push 0x33
         push offset HeavenGateShellcode
         retf
 
+prologue:
         // No labels needed!
         // After returning from 64-bit HeavenGateShellcode, execution continues here.
 
         // Restore state
-        popfd
-        popad
+        //popfd
+        //popad
 
         // Return NTSTATUS from eax
-        mov eax, [esp]
-        add esp, 4
+        mov eax, [esi + 60]
+
+        mov esp, ebp
+        pop ebp
         ret
     }
 }
@@ -321,31 +358,37 @@ bool DetectHooks()
     HANDLE hSection = NULL;
 
     WCHAR nameBuffer[] = L"\\KnownDlls\\kernel32.dll";
-    UNICODE_STRING uniName;
-    InitUnicodeString(&uniName, nameBuffer);
+    UNICODE_STRING64 uniName;
+    InitUnicodeString64(&uniName, nameBuffer);
 
-    OBJECT_ATTRIBUTES objAttr = { 0 };
+    OBJECT_ATTRIBUTES64 objAttr = { 0 };
     objAttr.Length = sizeof(objAttr);
-    objAttr.ObjectName = &uniName;
+    objAttr.ObjectName = (DWORD64)&uniName;
     objAttr.Attributes = OBJ_CASE_INSENSITIVE;
 
     GATE_SYSCALL gateCall = { 0 };
-    gateCall.SyscallId = 0x27;
+    gateCall.SyscallId = 0x37;
     gateCall.Arg1 = (DWORD64)(ULONG_PTR)&hSection;
     gateCall.Arg2 = SECTION_MAP_READ; // Desired access
     gateCall.Arg3 = (DWORD64)(ULONG_PTR)&objAttr;
+    gateCall.Arg4 = NULL;
+    gateCall.Arg5 = NULL;
+    gateCall.Arg6 = NULL;
 
-    NTSTATUS status = HeavensGateSyscall(&gateCall);
+    //gateCall.SyscallId = 0xFC;
+    /*
+    DWORD64 counter = 0;
+    GATE_SYSCALL gateCall = { 0 };
+    gateCall.SyscallId = 0x31;
+    gateCall.Arg1 = (DWORD64)&counter;
+    */
 
-    // Validate output
-    if (NT_SUCCESS(status) && hSection != NULL)
-    {
-        PRINT(L"Success: 0x%p - handle", hSection);
-    }
-    else
-    {
-        PRINT(L"Failed on syscall");
-    }
+    auto ret = HeavensGateSyscall(&gateCall);
+
+    PRINT(L"RET: 0x%016X\n", ret);
+    PRINT(L"hSection: 0x%08X\n", hSection);
+
+    return false;
 
     const auto fnProcPrint = [](PVOID addr, const char* name) -> bool {
         wchar_t wname[256];
