@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include "syscall.hpp"
 
 #pragma comment(linker, "/ENTRY:DllMain")
 
@@ -254,97 +255,17 @@ void PrintRealModules()
 }
 #endif
 
-#pragma code_seg(push, myseg, ".text$heaven")
-__declspec(allocate(".text$heaven"))
-unsigned char HeavenGateShellcode[] = {
-    // mov rax, [rsi]
-    0x48, 0x8B, 0x06,
-    // mov rcx, [rsi + 8]
-    0x48, 0x8B, 0x4E, 0x08,
-    // mov r10, rcx - syscall convention (first arg in r10)
-    0x49, 0x89, 0xca,
-    // mov rdx, [rsi + 16]
-    0x48, 0x8B, 0x56, 0x10,
-    // mov r8, [rsi + 24]
-    0x4C, 0x8B, 0x46, 0x18,
-    // mov r9, [rsi + 32]
-    0x4C, 0x8B, 0x4E, 0x20,
-    // push qword ptr [rsi + 40] ; Arg 5
-    0xFF, 0x76, 0x28,
-    // push qword ptr [rsi + 48] ; Arg 6
-    0xFF, 0x76, 0x30,
-    // syscall
-    0x0F, 0x05,
-    // add rsp, 16 ; cleanup stack 
-    0x48, 0x83, 0xc4, 0x10,
-    // mov [rsi + 60], rax ; Save return value
-    0x48, 0x89, 0x46, 0x3c,
+NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
+{
+    UNICODE_STRING64 uniName;
+    InitUnicodeString64(&uniName, sectionName);
 
-    // -- exit procedure
+    OBJECT_ATTRIBUTES64 objAttr = { 0 };
+    objAttr.Length = sizeof(objAttr);
+    objAttr.ObjectName = (DWORD64)&uniName;
+    objAttr.Attributes = OBJ_CASE_INSENSITIVE;
 
-    // sub esp, 0x8
-    0x83, 0xec, 0x08,
-    // mov eax, 0x23
-    0xb8, 0x23, 0x00, 0x00, 0x00,
-    // mov    DWORD PTR[esp + 0x4],eax
-    0x67, 0x89, 0x44, 0x24, 0x04,
-    // mov eax, [rsi + 56]
-    0x8B, 0x46, 0x38,
-    // mov    DWORD PTR[esp],eax
-    0x67, 0x89, 0x04, 0x24,
-
-    // retf
-    0xCB
-};
-#pragma code_seg(pop, myseg)
-
-#pragma pack(push, 1)
-typedef struct _GATE_SYSCALL {
-    DWORD64 SyscallId;    // [0]
-    DWORD64 Arg1;         // [8]
-    DWORD64 Arg2;         // [16]
-    DWORD64 Arg3;         // [24]
-    DWORD64 Arg4;         // [32]
-    DWORD64 Arg5;         // [40]
-    DWORD64 Arg6;         // [48]
-    DWORD ReturnAddress;  // [56]
-    DWORD64 ReturnValue;  // [60]
-} GATE_SYSCALL, * PGATE_SYSCALL;
-#pragma pack(pop) 
-
-__declspec(naked) DWORD64 HeavensGateSyscall(PGATE_SYSCALL pCall) {
-    __asm {
-        // Prologue (save state)
-        //pushad
-        //pushfd
-        push ebp
-        mov ebp, esp
-
-        // Get pointer to PGATE_SYSCALL
-        mov esi, [ebp + 8] // mov esi, pCall
-        //add esi, 0x24
-
-        mov edx, prologue
-        mov dword ptr[esi + 56], edx // store ReturnAddress
-        push 0x33
-        push offset HeavenGateShellcode
-        retf
-
-prologue:
-        // No labels needed!
-        // After returning from 64-bit HeavenGateShellcode, execution continues here.
-
-        // Restore state
-        //popfd
-        //popad
-
-        // Return NTSTATUS from eax
-        mov eax, [esi + 60]
-
-        mov esp, ebp
-        pop ebp
-        ret
-    }
+    return syscall(0x37, (DWORD64)pOutHandle, SECTION_MAP_READ, (DWORD64)(ULONG_PTR)&objAttr);
 }
 
 bool DetectHooks()
@@ -355,38 +276,11 @@ bool DetectHooks()
 
     PRINT(L"We are loaded.\n");
 
-    HANDLE hSection = NULL;
+    HANDLE handle;
+    auto ret = SyscallNtOpenSection(L"\\KnownDlls\\kernel32.dll", &handle);
 
-    WCHAR nameBuffer[] = L"\\KnownDlls\\kernel32.dll";
-    UNICODE_STRING64 uniName;
-    InitUnicodeString64(&uniName, nameBuffer);
-
-    OBJECT_ATTRIBUTES64 objAttr = { 0 };
-    objAttr.Length = sizeof(objAttr);
-    objAttr.ObjectName = (DWORD64)&uniName;
-    objAttr.Attributes = OBJ_CASE_INSENSITIVE;
-
-    GATE_SYSCALL gateCall = { 0 };
-    gateCall.SyscallId = 0x37;
-    gateCall.Arg1 = (DWORD64)(ULONG_PTR)&hSection;
-    gateCall.Arg2 = SECTION_MAP_READ; // Desired access
-    gateCall.Arg3 = (DWORD64)(ULONG_PTR)&objAttr;
-    gateCall.Arg4 = NULL;
-    gateCall.Arg5 = NULL;
-    gateCall.Arg6 = NULL;
-
-    //gateCall.SyscallId = 0xFC;
-    /*
-    DWORD64 counter = 0;
-    GATE_SYSCALL gateCall = { 0 };
-    gateCall.SyscallId = 0x31;
-    gateCall.Arg1 = (DWORD64)&counter;
-    */
-
-    auto ret = HeavensGateSyscall(&gateCall);
-
-    PRINT(L"RET: 0x%016X\n", ret);
-    PRINT(L"hSection: 0x%08X\n", hSection);
+    PRINT(L"RET: 0x%08X\n", ret);
+    PRINT(L"hSection: 0x%08X\n", handle);
 
     return false;
 
