@@ -100,25 +100,6 @@ typedef struct _OBJECT_ATTRIBUTES64 {
     DWORD64         SecurityQualityOfService;
 } OBJECT_ATTRIBUTES64, *POBJECT_ATTRIBUTES64;
 
-typedef NTSTATUS(NTAPI* pNtOpenSection64)(
-    PHANDLE SectionHandle,
-    ACCESS_MASK DesiredAccess,
-    POBJECT_ATTRIBUTES ObjectAttributes
-    );
-
-typedef NTSTATUS(NTAPI* pNtMapViewOfSection64)(
-    HANDLE SectionHandle,
-    HANDLE ProcessHandle,
-    PVOID* BaseAddress,
-    ULONG_PTR ZeroBits,
-    SIZE_T CommitSize,
-    PLARGE_INTEGER SectionOffset,
-    PSIZE_T ViewSize,
-    DWORD InheritDisposition,
-    ULONG AllocationType,
-    ULONG Win32Protect
-    );
-
 // ---
 
 PEB* GetPEB() {
@@ -257,7 +238,7 @@ void PrintRealModules()
 
 NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
 {
-    STACK_ALIGN_X86
+    STACK_ALIGN_TO_X64
 
     UNICODE_STRING64 uniName;
     InitUnicodeString64(&uniName, sectionName);
@@ -268,7 +249,7 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
     objAttr.Attributes = OBJ_CASE_INSENSITIVE;
 
     DWORD64 handle64 = NULL;
-    const auto ret = syscall(0x37, (DWORD64)(ULONG_PTR)&handle64, SECTION_MAP_READ, (DWORD64)(ULONG_PTR)&objAttr);
+    const auto ret = syscall(0x37, MAKE_X64_PTR(handle64), SECTION_MAP_READ, MAKE_X64_PTR(objAttr));
 
     if (NT_SUCCESS(ret)) {
         *pOutHandle = (HANDLE)handle64;
@@ -277,11 +258,23 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
     return ret;
 }
 
+typedef NTSTATUS(NTAPI* NtMapViewOfSection_t)(
+    HANDLE SectionHandle,
+    HANDLE ProcessHandle,
+    PVOID* BaseAddress,
+    ULONG_PTR ZeroBits,
+    SIZE_T CommitSize,
+    PLARGE_INTEGER SectionOffset,
+    PSIZE_T ViewSize,
+    DWORD InheritDisposition,
+    ULONG AllocationType,
+    ULONG Win32Protect
+    );
+
 NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 {
-    STACK_ALIGN_X86
+    STACK_ALIGN_TO_X64
 
-    DWORD64 baseAddress = 0;
     DWORD64 viewSize = 0;
     DWORD64 sectionOffset = 0;
     DWORD64 zeroBits = 0;
@@ -306,31 +299,44 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
   IN ULONG                Protect );
     */
 
+    /*
+    NtMapViewOfSection_t NtMapViewOfSection = (NtMapViewOfSection_t)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtMapViewOfSection");
+
+    auto ret = NtMapViewOfSection(
+        hSection,
+        (HANDLE)-1,
+        ppOutAddress,
+        0,
+        0,
+        NULL,
+        &viewSize,
+        1, // ViewShare
+        0,
+        PAGE_READONLY
+    );
+    */
+
     const auto ret = syscall(
         0x28,
         sectionHandle,
         processHandle,
-        (DWORD64)(ULONG_PTR)&baseAddress,
-        zeroBits,
-// ----
+        X64_PTR(ppOutAddress),
+        NULL,
+        // ---
         protect,
         allocType,
         inherit,
-        viewSize,
+        MAKE_X64_PTR(viewSize),
         sectionOffset,
         commitSize
     );
-
-    if (NT_SUCCESS(ret)) {
-        *ppOutAddress = (PVOID)baseAddress;
-    }
 
     return ret;
 }
 
 bool DetectHooks()
 {
-    STACK_ALIGN_X86
+    STACK_ALIGN_TO_X64
 
 #ifdef _PRINT_MODULES
     PrintRealModules();
@@ -347,8 +353,15 @@ bool DetectHooks()
     PVOID baseAddress = NULL;
     ret = SyscallNtMapViewOfSection(handle, &baseAddress);
 
+    if (ret == 0x40000003) {
+        MessageBoxA(0, "Success", "Success", 0);
+    }
+    else {
+        MessageBoxA(0, "Fail", "Fail", 0);
+    }
+
     PRINT(L"RET: 0x%08X\n", ret);
-    PRINT(L"baseAddress: 0x%08X\n", NULL);
+    PRINT(L"baseAddress: 0x%08X\n", baseAddress);
 
     return false;
 

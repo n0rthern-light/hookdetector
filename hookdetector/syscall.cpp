@@ -26,6 +26,13 @@ unsigned char HeavenGateShellcode[] = {
     0x4C, 0x8B, 0x46, 0x20,
     // mov r9, [rsi + 40] ;        Arg 4
     0x4C, 0x8B, 0x4E, 0x28,
+
+    // -- preserve stack
+    // push r12
+    0x41, 0x54,
+    // mov r12, rsp
+    0x49, 0x89, 0xe4,
+
     // push qword ptr [rsi + 48] ; Arg 5
     0xFF, 0x76, 0x30,
     // push qword ptr [rsi + 56] ; Arg 6
@@ -42,10 +49,17 @@ unsigned char HeavenGateShellcode[] = {
     0xFF, 0x76, 0x60,
     // push qword ptr [rsi + 104] ; Arg 12
     0xFF, 0x76, 0x68,
+    // sub sub, 24
+    0x48, 0x83, 0xec, 0x18,
     // syscall
     0x0F, 0x05,
-    // add rsp, 36 ; cleanup stack 
-    0x48, 0x83, 0xc4, 0x40,
+
+    // -- revert stack (cleanup)
+    // mov rsp, r12
+    0x4c, 0x89, 0xe4,
+    // pop r12
+    0x41, 0x5c,
+
     // mov [rsi + 8], rax ; Save return value
     0x48, 0x89, 0x46, 0x08,
 

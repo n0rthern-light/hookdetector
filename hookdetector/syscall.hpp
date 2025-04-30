@@ -3,7 +3,10 @@
 
 #include <Windows.h>
 
-#define STACK_ALIGN_X86 __asm { and esp, 0xFFFFFFF0 };
+#define STACK_ALIGN_TO_X64 __asm { and esp, 0xFFFFFFF0 };
+
+#define X64_PTR(ptr) (DWORD64)(PVOID)(ptr)
+#define MAKE_X64_PTR(var) X64_PTR(&var)
 
 extern unsigned char HeavenGateShellcode[];
 
