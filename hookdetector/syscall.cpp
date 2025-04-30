@@ -3,17 +3,28 @@
 #pragma code_seg(push, myseg, ".text$heaven")
 __declspec(allocate(".text$heaven"))
 unsigned char HeavenGateShellcode[] = {
+    // -- setup stack for x64
+
+    // push rbp
+    0x55,
+    // mov rbp, rsp
+    0x48, 0x89, 0xe5,
+    // and rsp, 0xfffffffffffffff0
+    0x48, 0x83, 0xe4, 0xf0,
+
+    // -- setup args and syscall
+
     // mov eax, [esi]
     0x67, 0x8b, 0x06,
-    // mov rcx, [rsi + 16]
+    // mov rcx, [rsi + 16] ;       Arg 1
     0x48, 0x8B, 0x4E, 0x10,
-    // mov r10, rcx - syscall convention (first arg in r10)
+    // mov r10, rcx ;              Arg 1
     0x49, 0x89, 0xca,
-    // mov rdx, [rsi + 24]
+    // mov rdx, [rsi + 24] ;       Arg 2
     0x48, 0x8B, 0x56, 0x18,
-    // mov r8, [rsi + 32]
+    // mov r8, [rsi + 32] ;        Arg 3
     0x4C, 0x8B, 0x46, 0x20,
-    // mov r9, [rsi + 40]
+    // mov r9, [rsi + 40] ;        Arg 4
     0x4C, 0x8B, 0x4E, 0x28,
     // push qword ptr [rsi + 48] ; Arg 5
     0xFF, 0x76, 0x30,
@@ -38,6 +49,13 @@ unsigned char HeavenGateShellcode[] = {
     // mov [rsi + 8], rax ; Save return value
     0x48, 0x89, 0x46, 0x08,
 
+    // -- revert stack for x86
+    
+    // mov rsp, rbp
+    0x48, 0x89, 0xec,
+    // pop rbp
+    0x5d,
+
     // -- exit procedure
 
     // sub esp, 0x8
@@ -46,11 +64,10 @@ unsigned char HeavenGateShellcode[] = {
     0xb8, 0x23, 0x00, 0x00, 0x00,
     // mov    DWORD PTR[esp + 0x4],eax
     0x67, 0x89, 0x44, 0x24, 0x04,
-    // mov eax, [rsi + 4]
-    0x8B, 0x46, 0x04,
+    // mov eax, [esi + 4]
+    0x67, 0x8B, 0x46, 0x04,
     // mov    DWORD PTR[esp],eax
     0x67, 0x89, 0x04, 0x24,
-
     // retf
     0xCB
 };
@@ -58,11 +75,9 @@ unsigned char HeavenGateShellcode[] = {
 
 DWORD32 HeavensGateSyscall(HEAVENS_GATE_SYSCALL* pCall)
 {
-    // todo stack alignment? :)
     DWORD32 ret;
     __asm {
-        push esi
-        mov esi, pCall // mov esi, pCall
+        mov esi, pCall // mov esi, pCall ([ebp + 8])
 
         mov edx, prologue
         mov dword ptr[esi + 4], edx // store ReturnAddress
@@ -75,8 +90,6 @@ DWORD32 HeavensGateSyscall(HEAVENS_GATE_SYSCALL* pCall)
         mov eax, [esi + 8]
         lea edx, ret
         mov [edx], eax
-
-        pop esi
     }
 
     return ret;

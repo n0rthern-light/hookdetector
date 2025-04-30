@@ -257,6 +257,8 @@ void PrintRealModules()
 
 NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
 {
+    STACK_ALIGN_X86
+
     UNICODE_STRING64 uniName;
     InitUnicodeString64(&uniName, sectionName);
 
@@ -277,6 +279,8 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
 
 NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 {
+    STACK_ALIGN_X86
+
     DWORD64 baseAddress = 0;
     DWORD64 viewSize = 0;
     DWORD64 sectionOffset = 0;
@@ -326,20 +330,22 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 
 bool DetectHooks()
 {
+    STACK_ALIGN_X86
+
 #ifdef _PRINT_MODULES
     PrintRealModules();
 #endif
 
     PRINT(L"We are loaded.\n");
 
-    //PVOID baseAddress = NULL;
     HANDLE handle = NULL;
     NTSTATUS ret = SyscallNtOpenSection(L"\\KnownDlls\\kernel32.dll", &handle);
 
     PRINT(L"RET: 0x%08X\n", ret);
     PRINT(L"hSection: 0x%08X\n", handle);
 
-    ret = SyscallNtMapViewOfSection(handle, NULL);
+    PVOID baseAddress = NULL;
+    ret = SyscallNtMapViewOfSection(handle, &baseAddress);
 
     PRINT(L"RET: 0x%08X\n", ret);
     PRINT(L"baseAddress: 0x%08X\n", NULL);

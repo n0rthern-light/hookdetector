@@ -3,6 +3,8 @@
 
 #include <Windows.h>
 
+#define STACK_ALIGN_X86 __asm { and esp, 0xFFFFFFF0 };
+
 extern unsigned char HeavenGateShellcode[];
 
 #pragma pack(push, 1)
