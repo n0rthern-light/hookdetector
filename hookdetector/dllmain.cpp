@@ -353,15 +353,16 @@ bool DetectHooks()
     PVOID baseAddress = NULL;
     ret = SyscallNtMapViewOfSection(handle, &baseAddress);
 
-    if (ret == 0x40000003) {
-        MessageBoxA(0, "Success", "Success", 0);
+    if (ret == 0x40000003 || ret == 0) {
+        PRINT(L"Success!\n");
+        PRINT(L"RET: 0x%08X\n", ret);
+        PRINT(L"baseAddress: 0x%08X\n", baseAddress);
     }
     else {
-        MessageBoxA(0, "Fail", "Fail", 0);
+        PRINT(L"Failure!\n");
+        PRINT(L"RET: 0x%08X\n", ret);
     }
 
-    PRINT(L"RET: 0x%08X\n", ret);
-    PRINT(L"baseAddress: 0x%08X\n", baseAddress);
 
     return false;
 

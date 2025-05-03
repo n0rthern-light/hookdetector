@@ -49,6 +49,12 @@ unsigned char HeavenGateShellcode[] = {
     0xFF, 0x76, 0x60,
     // push qword ptr [rsi + 104] ; Arg 12
     0xFF, 0x76, 0x68,
+    // push qword ptr [rsi + 112] ; Arg 13
+    //0xFF, 0x76, 0x70,
+    // push qword ptr [rsi + 120] ; Arg 14
+    //0xFF, 0x76, 0x78,
+    // push qword ptr [rsi + 128] ; Arg 15
+    //0xFF, 0x76, 0x80,
     // sub sub, 24
     0x48, 0x83, 0xec, 0x18,
     // syscall

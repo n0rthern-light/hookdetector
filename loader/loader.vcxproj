@@ -30,7 +30,7 @@
     <VCProjectVersion>17.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{f8a63aaa-202e-4de8-ae84-4ecec9440032}</ProjectGuid>
-    <RootNamespace>nocrt</RootNamespace>
+    <RootNamespace>loader</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
     <ProjectName>loader</ProjectName>
   </PropertyGroup>

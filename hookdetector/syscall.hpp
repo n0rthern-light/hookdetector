@@ -29,6 +29,9 @@ typedef struct {
     DWORD64 Arg10;         // [88]
     DWORD64 Arg11;         // [96]
     DWORD64 Arg12;         // [104]
+    DWORD64 Arg13;         // [112]
+    DWORD64 Arg14;         // [120]
+    DWORD64 Arg15;         // [128]
 } HEAVENS_GATE_SYSCALL;
 #pragma pack(pop) 
 
@@ -47,7 +50,10 @@ __forceinline DWORD32 syscall(
     DWORD64 StArg9 = NULL,
     DWORD64 StArg10 = NULL,
     DWORD64 StArg11 = NULL,
-    DWORD64 StArg12 = NULL
+    DWORD64 StArg12 = NULL,
+    DWORD64 StArg13 = NULL,
+    DWORD64 StArg14 = NULL,
+    DWORD64 StArg15 = NULL
 ) {
     auto call = HEAVENS_GATE_SYSCALL{
         syscallId,
@@ -64,7 +70,10 @@ __forceinline DWORD32 syscall(
         StArg9,
         StArg10,
         StArg11,
-        StArg12
+        StArg12,
+        StArg13,
+        StArg14,
+        StArg15
     };
 
     return HeavensGateSyscall(&call);
