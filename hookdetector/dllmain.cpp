@@ -275,6 +275,8 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 {
     STACK_ALIGN_TO_X64
 
+    DWORD64 outBaseAddr64 = NULL;
+
     DWORD64 viewSize = 0;
     DWORD64 sectionOffset = 0;
     DWORD64 zeroBits = 0;
@@ -302,6 +304,7 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
     /*
     NtMapViewOfSection_t NtMapViewOfSection = (NtMapViewOfSection_t)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtMapViewOfSection");
 
+    SIZE_T viewSize32 = 0;
     auto ret = NtMapViewOfSection(
         hSection,
         (HANDLE)-1,
@@ -309,18 +312,18 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
         0,
         0,
         NULL,
-        &viewSize,
+        &viewSize32,
         1, // ViewShare
         0,
         PAGE_READONLY
     );
     */
-
+   
     const auto ret = syscall(
         0x28,
         sectionHandle,
         processHandle,
-        X64_PTR(ppOutAddress),
+        MAKE_X64_PTR(outBaseAddr64),
         NULL,
         // ---
         protect,
@@ -330,6 +333,10 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
         sectionOffset,
         commitSize
     );
+
+    if (outBaseAddr64) {
+        *ppOutAddress = (PVOID)(DWORD)outBaseAddr64;
+    }
 
     return ret;
 }

@@ -5,7 +5,7 @@
 
 #define STACK_ALIGN_TO_X64 __asm { and esp, 0xFFFFFFF0 };
 
-#define X64_PTR(ptr) (DWORD64)(PVOID)(ptr)
+#define X64_PTR(ptr) (DWORD64)(DWORD32)(ptr)
 #define MAKE_X64_PTR(var) X64_PTR(&var)
 
 extern unsigned char HeavenGateShellcode[];
