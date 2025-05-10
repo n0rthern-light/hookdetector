@@ -3,10 +3,6 @@
 
 #pragma comment(linker, "/ENTRY:DllMain")
 
-#define MODULE_HASH_KERNEL32 0x1FED47BA
-#define MODULE_HASH_USER32 0x9A138064
-#define MODULE_HASH_NTDLL 0x48081EFB
-
 #define PRINT(STR, ...) \
 	if (1) { \
 		LPWSTR buf = (LPWSTR)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 1024); \
@@ -179,35 +175,32 @@ UINT CalcHash(void* src, UINT size)
     return hash;
 }
 
-HMODULE PebModuleHandle(UINT moduleHash)
+typedef bool(__stdcall* IterateModuleCallback_t)(HMODULE, ULONG, PWSTR);
+void IteratePebModules(IterateModuleCallback_t callback)
 {
     PEB* peb = GetPEB();
     if (!peb) {
-        return 0;
+        return;
     }
 
     PEB_LDR_DATA* ldrData = peb->Ldr;
     if (!ldrData) {
-        return 0;
+        return;
     }
 
     auto listEntry = peb->Ldr->InLoadOrderModuleList.Flink;
     do {
         const auto module = CONTAINING_RECORD(listEntry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
-        const auto hash = CalcHash(module->BaseDllName.Buffer, module->BaseDllName.Length);
-
-        if (hash == moduleHash) {
-            return (HMODULE)module->DllBase;
+        if (callback((HMODULE)module->DllBase, module->SizeOfImage, module->BaseDllName.Buffer)) {
+            return;
         }
 
         listEntry = listEntry->Flink;
     } while (listEntry != &peb->Ldr->InLoadOrderModuleList);
-
-    return 0;
 }
 
-typedef bool(__stdcall* IterateProcCallback_t)(PVOID, const char*);
-void IterateModuleProcs(HMODULE hModule, IterateProcCallback_t callback) {
+typedef bool(__stdcall* IterateProcCallback_t)(PVOID, const char*, PVOID);
+void IterateModuleProcs(HMODULE hModule, IterateProcCallback_t callback, PVOID pParam) {
     PIMAGE_DOS_HEADER pDOSHeader = (PIMAGE_DOS_HEADER)hModule;
     PIMAGE_NT_HEADERS pNTHeaders = (PIMAGE_NT_HEADERS)((BYTE*)hModule + pDOSHeader->e_lfanew);
     PIMAGE_EXPORT_DIRECTORY pExportDirectory = (PIMAGE_EXPORT_DIRECTORY)((BYTE*)hModule + pNTHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT].VirtualAddress);
@@ -218,23 +211,11 @@ void IterateModuleProcs(HMODULE hModule, IterateProcCallback_t callback) {
 
     for (DWORD i = 0; i < pExportDirectory->NumberOfNames; i++) {
         const auto functionName = (char*)((BYTE*)hModule + pAddressOfNames[i]);
-        if (callback((PVOID)((BYTE*)hModule + pAddressOfFunctions[pAddressOfNameOrdinals[i]]), functionName)) {
+        if (callback((PVOID)((BYTE*)hModule + pAddressOfFunctions[pAddressOfNameOrdinals[i]]), functionName, pParam)) {
             return;
         }
     }
 }
-
-#ifdef _PRINT_MODULES
-void PrintRealModules()
-{
-    const auto pKernel32 = GetModuleHandleA("KERNEL32.DLL");
-    PRINT(L"KERNEL32.DLL - 0x%p\n", pKernel32);
-    const auto pUser32 = GetModuleHandleA("user32.dll");
-    PRINT(L"user32.dll - 0x%p\n", pUser32);
-    const auto pNtDll = GetModuleHandleA("ntdll.dll");
-    PRINT(L"ntdll.dll - 0x%p\n", pNtDll);
-}
-#endif
 
 NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
 {
@@ -287,37 +268,6 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 
     DWORD64 processHandle = (DWORD64)-1;
     DWORD64 sectionHandle = (DWORD64)hSection;
-
-    /*
-  IN HANDLE               SectionHandle,
-  IN HANDLE               ProcessHandle,
-  IN OUT PVOID            *BaseAddress OPTIONAL,
-  IN ULONG                ZeroBits OPTIONAL,
-  IN ULONG                CommitSize,
-  IN OUT PLARGE_INTEGER   SectionOffset OPTIONAL,
-  IN OUT PULONG           ViewSize,
-  IN                      InheritDisposition,
-  IN ULONG                AllocationType OPTIONAL,
-  IN ULONG                Protect );
-    */
-
-    /*
-    NtMapViewOfSection_t NtMapViewOfSection = (NtMapViewOfSection_t)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "NtMapViewOfSection");
-
-    SIZE_T viewSize32 = 0;
-    auto ret = NtMapViewOfSection(
-        hSection,
-        (HANDLE)-1,
-        ppOutAddress,
-        0,
-        0,
-        NULL,
-        &viewSize32,
-        1, // ViewShare
-        0,
-        PAGE_READONLY
-    );
-    */
    
     const auto ret = syscall(
         0x28,
@@ -341,6 +291,32 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
     return ret;
 }
 
+PVOID MapKnownDll(const wchar_t* dllName)
+{
+    STACK_ALIGN_TO_X64
+
+    wchar_t knownDllName[0x50];
+    wsprintfW(knownDllName, L"\\KnownDlls32\\%ws", dllName);
+
+    HANDLE handle = NULL;
+    NTSTATUS ret = SyscallNtOpenSection(knownDllName, &handle);
+
+    if (ret < 0) {
+        PRINT(L"[Error] NtOpenSection failed.");
+        return nullptr;
+    }
+
+    PVOID baseAddress = NULL;
+    ret = SyscallNtMapViewOfSection(handle, &baseAddress);
+
+    if (ret < 0) {
+        PRINT(L"[Error] NtMapViewOfSection failed.");
+        return nullptr;
+    }
+
+    return baseAddress;
+}
+
 bool DetectHooks()
 {
     STACK_ALIGN_TO_X64
@@ -349,57 +325,56 @@ bool DetectHooks()
     PrintRealModules();
 #endif
 
-    PRINT(L"We are loaded.\n");
+    const auto fnModuleIter = [](HMODULE module, ULONG size, PWSTR name) -> bool {
+        PRINT(L"===================================================\n");
+        PRINT(L"> %ws @ 0x%p, size: 0x%x\n", name, module, size);
+        /*
+        if (strcmpW(name, L"ntdll.dll") != 0) {
+            return false;
+        }
+        */
 
-    HANDLE handle = NULL;
-    NTSTATUS ret = SyscallNtOpenSection(L"\\KnownDlls\\kernel32.dll", &handle);
+        const auto knownDll = MapKnownDll(name);
+        PRINT(L"> knownDll @ 0x%p\n", knownDll);
+        if (!knownDll) {
+            return false;
+        }
 
-    PRINT(L"RET: 0x%08X\n", ret);
-    PRINT(L"hSection: 0x%08X\n", handle);
+        typedef struct {
+            HMODULE module;
+            PVOID knownDll;
+        } procIter_t;
+        procIter_t data { module, knownDll };
 
-    PVOID baseAddress = NULL;
-    ret = SyscallNtMapViewOfSection(handle, &baseAddress);
+        PRINT(L"> Iterating procedures...\n");
+        const auto fnProcIter = [](PVOID addr, const char* name, PVOID pParam) -> bool {
+            wchar_t wname[256];
+            MultiByteToWideChar(CP_ACP, 0, name, -1, wname, 256);
 
-    if (ret == 0x40000003 || ret == 0) {
-        PRINT(L"Success!\n");
-        PRINT(L"RET: 0x%08X\n", ret);
-        PRINT(L"baseAddress: 0x%08X\n", baseAddress);
-    }
-    else {
-        PRINT(L"Failure!\n");
-        PRINT(L"RET: 0x%08X\n", ret);
-    }
+            const auto data = (procIter_t*)pParam;
+            const auto offset = (ULONG)addr - (ULONG)data->module;
+            const auto knownDllAddr = (PVOID)((ULONG)data->knownDll + offset);
 
+            const auto moduleProcHash = CalcHash(addr, 0x10);
+            const auto knownDllProcHash = CalcHash(knownDllAddr, 0x10);
 
-    return false;
+            if (moduleProcHash != knownDllProcHash) {
+                PRINT(L"---------------------------------------------------\n");
+                PRINT(L">>> HOOK DETECTED!\n", wname, addr, offset, knownDllAddr);
+                PRINT(L">>> Expected hash: 0x%x, got: 0x%x\n", knownDllProcHash, moduleProcHash);
+                PRINT(L">>> %ws @ 0x%p, offset: 0x%x, knownDllAddr: 0x%p\n", wname, addr, offset, knownDllAddr);
+            }
 
+            return false;
+        };
 
-    const auto fnProcPrint = [](PVOID addr, const char* name) -> bool {
-        wchar_t wname[256];
-        MultiByteToWideChar(CP_ACP, 0, name, -1, wname, 256);
-        PRINT(L"> %ws @ 0x%p\n", wname, addr);
+        IterateModuleProcs(module, fnProcIter, (PVOID)&data);
+
 
         return false;
     };
-
-    const auto pKernel32 = PebModuleHandle(MODULE_HASH_KERNEL32);
-    PRINT(L"--- KERNEL32.DLL - 0x%p\n", pKernel32);
-    IterateModuleProcs(pKernel32, fnProcPrint);
-    const auto pUser32 = PebModuleHandle(MODULE_HASH_USER32);
-    PRINT(L"--- user32.dll - 0x%p\n", pUser32);
-    IterateModuleProcs(pUser32, fnProcPrint);
-    const auto pNtDll = PebModuleHandle(MODULE_HASH_NTDLL);
-    PRINT(L"--- ntdll.dll - 0x%p\n", pNtDll);
-    IterateModuleProcs(pNtDll, fnProcPrint);
-
-    // todo acquire syscall method to map sections
-
-#ifdef _PRINT_MODULES
-    const auto pGetModuleHandleA = GetProcAddress((HMODULE)pKernel32, "GetModuleHandleA");
-    PRINT(L"GetModuleHandleA - 0x%p\n", pGetModuleHandleA);
-    const auto pGetProcAddress = GetProcAddress((HMODULE)pKernel32, "GetProcAddress");
-    PRINT(L"GetProcAddress - 0x%p\n", pGetProcAddress);
-#endif
+    PRINT(L"Iterating modules...\n");
+    IteratePebModules(fnModuleIter);
 
     return false;
 }
