@@ -358,7 +358,6 @@ void DetectHooks()
 
         IterateModuleProcs(module, fnProcIter, (PVOID)&data);
 
-        //UnmapViewOfFile(knownDll);
         PRINT(L"> Procs tested.\n");
 
         return false;
@@ -379,7 +378,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         if (!GetConsoleWindow()) {
             AllocConsole();
         }
-        CreateThread(0, 0, (LPTHREAD_START_ROUTINE)&DetectHooks, 0, 0, 0);
+        DetectHooks();
 
         break;
     case DLL_THREAD_ATTACH:
