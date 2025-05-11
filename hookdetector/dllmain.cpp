@@ -285,7 +285,7 @@ PVOID MapKnownDll(const wchar_t* dllName)
 {
     STACK_ALIGN_TO_X64
 
-        wchar_t knownDllName[0x50];
+    wchar_t knownDllName[0x50];
     wsprintfW(knownDllName, L"\\KnownDlls32\\%ws", dllName);
 
     HANDLE handle = NULL;
