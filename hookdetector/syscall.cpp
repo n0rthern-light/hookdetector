@@ -89,8 +89,8 @@ DWORD32 HeavensGateSyscall(HEAVENS_GATE_SYSCALL* pCall)
     prologue:
         // Return NTSTATUS
         mov eax, [esi + 8]
-        mov     cx, ds // fix ESP register (for AMD)
-        mov     ss, cx // http://blog.rewolf.pl/blog/?p=1484
+        mov cx, ds // fix ESP register (for AMD)
+        mov ss, cx // http://blog.rewolf.pl/blog/?p=1484
     }
 }
 
