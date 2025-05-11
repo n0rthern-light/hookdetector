@@ -1,4 +1,4 @@
-# hookdetector
+# 🪝 hookdetector
 A DLL module for WOW64 processes (32-bit on 64-bit Windows) designed to detect Windows API hooks within the process's 32-bit DLLs.
 
 ## Goal of the project
