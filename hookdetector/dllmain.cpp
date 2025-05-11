@@ -210,8 +210,10 @@ void IterateModuleProcs(HMODULE hModule, IterateProcCallback_t callback, PVOID p
     WORD* pAddressOfNameOrdinals = (WORD*)((BYTE*)hModule + pExportDirectory->AddressOfNameOrdinals);
 
     for (DWORD i = 0; i < pExportDirectory->NumberOfNames; i++) {
-        const auto functionName = (char*)((BYTE*)hModule + pAddressOfNames[i]);
-        if (callback((PVOID)((BYTE*)hModule + pAddressOfFunctions[pAddressOfNameOrdinals[i]]), functionName, pParam)) {
+        char* functionName = (char*)((BYTE*)hModule + pAddressOfNames[i]);
+        PVOID functionStart = (PVOID)((BYTE*)hModule + pAddressOfFunctions[pAddressOfNameOrdinals[i]]);
+
+        if (callback(functionStart, functionName, pParam)) {
             return;
         }
     }
@@ -230,7 +232,7 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
     objAttr.Attributes = OBJ_CASE_INSENSITIVE;
 
     DWORD64 handle64 = NULL;
-    const auto ret = syscall(0x37, MAKE_X64_PTR(handle64), SECTION_MAP_READ, MAKE_X64_PTR(objAttr));
+    NTSTATUS ret = syscall(0x37, MAKE_X64_PTR(handle64), SECTION_MAP_READ, MAKE_X64_PTR(objAttr));
 
     if (NT_SUCCESS(ret)) {
         *pOutHandle = (HANDLE)handle64;
@@ -238,19 +240,6 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
 
     return ret;
 }
-
-typedef NTSTATUS(NTAPI* NtMapViewOfSection_t)(
-    HANDLE SectionHandle,
-    HANDLE ProcessHandle,
-    PVOID* BaseAddress,
-    ULONG_PTR ZeroBits,
-    SIZE_T CommitSize,
-    PLARGE_INTEGER SectionOffset,
-    PSIZE_T ViewSize,
-    DWORD InheritDisposition,
-    ULONG AllocationType,
-    ULONG Win32Protect
-    );
 
 NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 {
@@ -269,7 +258,7 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
     DWORD64 processHandle = (DWORD64)-1;
     DWORD64 sectionHandle = (DWORD64)hSection;
    
-    const auto ret = syscall(
+    NTSTATUS ret = syscall(
         0x28,
         sectionHandle,
         processHandle,
@@ -302,7 +291,7 @@ PVOID MapKnownDll(const wchar_t* dllName)
     NTSTATUS ret = SyscallNtOpenSection(knownDllName, &handle);
 
     if (ret < 0) {
-        PRINT(L"[Error] NtOpenSection failed.");
+        PRINT(L"[Error] NtOpenSection failed.\n");
         return nullptr;
     }
 
@@ -310,29 +299,20 @@ PVOID MapKnownDll(const wchar_t* dllName)
     ret = SyscallNtMapViewOfSection(handle, &baseAddress);
 
     if (ret < 0) {
-        PRINT(L"[Error] NtMapViewOfSection failed.");
+        PRINT(L"[Error] NtMapViewOfSection failed.\n");
         return nullptr;
     }
 
     return baseAddress;
 }
 
-bool DetectHooks()
+void DetectHooks()
 {
     STACK_ALIGN_TO_X64
-
-#ifdef _PRINT_MODULES
-    PrintRealModules();
-#endif
 
     const auto fnModuleIter = [](HMODULE module, ULONG size, PWSTR name) -> bool {
         PRINT(L"===================================================\n");
         PRINT(L"> %ws @ 0x%p, size: 0x%x\n", name, module, size);
-        /*
-        if (strcmpW(name, L"ntdll.dll") != 0) {
-            return false;
-        }
-        */
 
         const auto knownDll = MapKnownDll(name);
         PRINT(L"> knownDll @ 0x%p\n", knownDll);
@@ -347,22 +327,23 @@ bool DetectHooks()
         procIter_t data { module, knownDll };
 
         PRINT(L"> Iterating procedures...\n");
-        const auto fnProcIter = [](PVOID addr, const char* name, PVOID pParam) -> bool {
+        const auto fnProcIter = [](PVOID fnStart, const char* name, PVOID pParam) -> bool {
             wchar_t wname[256];
             MultiByteToWideChar(CP_ACP, 0, name, -1, wname, 256);
 
             const auto data = (procIter_t*)pParam;
-            const auto offset = (ULONG)addr - (ULONG)data->module;
+            const auto offset = (ULONG)fnStart - (ULONG)data->module;
             const auto knownDllAddr = (PVOID)((ULONG)data->knownDll + offset);
+            const auto size = 0x10;
 
-            const auto moduleProcHash = CalcHash(addr, 0x10);
-            const auto knownDllProcHash = CalcHash(knownDllAddr, 0x10);
+            const auto moduleProcHash = CalcHash(fnStart, size);
+            const auto knownDllProcHash = CalcHash(knownDllAddr, size);
 
             if (moduleProcHash != knownDllProcHash) {
                 PRINT(L"---------------------------------------------------\n");
-                PRINT(L">>> HOOK DETECTED!\n", wname, addr, offset, knownDllAddr);
+                PRINT(L">>> HOOK DETECTED!\n");
+                PRINT(L">>> %ws @ 0x%p, offset: 0x%x, size: 0x%x, knownDllAddr: 0x%p\n", wname, fnStart, offset, size, knownDllAddr);
                 PRINT(L">>> Expected hash: 0x%x, got: 0x%x\n", knownDllProcHash, moduleProcHash);
-                PRINT(L">>> %ws @ 0x%p, offset: 0x%x, knownDllAddr: 0x%p\n", wname, addr, offset, knownDllAddr);
             }
 
             return false;
@@ -370,13 +351,10 @@ bool DetectHooks()
 
         IterateModuleProcs(module, fnProcIter, (PVOID)&data);
 
-
         return false;
     };
     PRINT(L"Iterating modules...\n");
     IteratePebModules(fnModuleIter);
-
-    return false;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
@@ -386,13 +364,10 @@ BOOL APIENTRY DllMain(HMODULE hModule,
     switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
-        PRINT(L"Checking for API hooks in process...\n");
-		if (DetectHooks()) {
-			PRINT(L"API hooks found!\n");
-		}
-		else {
-			PRINT(L"Process OK\n");
-		}
+        if (!GetConsoleWindow()) {
+            AllocConsole();
+        }
+        DetectHooks();
 
         break;
     case DLL_THREAD_ATTACH:
