@@ -1,5 +1,5 @@
 # hookdetector
-DLL module for WOW64 processes (x86 on 64bit Windows) for detecting Windows API hooks inside 32-bit DLLs of the process.
+A DLL module for WOW64 processes (32-bit on 64-bit Windows) designed to detect Windows API hooks within the process's 32-bit DLLs.
 
 ## Goal of the project
 The goal is to reliably detect hooks within x86 DLLs in an x86 process as long as there is no kernel-mode interference.
