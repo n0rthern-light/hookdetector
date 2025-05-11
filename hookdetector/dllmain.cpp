@@ -292,7 +292,6 @@ PVOID MapKnownDll(const wchar_t* dllName)
     NTSTATUS ret = SyscallNtOpenSection(knownDllName, &handle);
 
     if (ret < 0) {
-        PRINT(L"[Error] NtOpenSection failed.\n");
         return nullptr;
     }
 
@@ -300,7 +299,6 @@ PVOID MapKnownDll(const wchar_t* dllName)
     ret = SyscallNtMapViewOfSection(handle, &baseAddress);
 
     if (ret < 0) {
-        PRINT(L"[Error] NtMapViewOfSection failed.\n");
         return nullptr;
     }
 
