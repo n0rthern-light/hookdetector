@@ -14,7 +14,7 @@ The functionality relies on three concepts:
 - `NtOpenSection` to open a handle to `\\KnownDlls32\\<windows-dll-that-need-to-be-tested>.dll`.
 - `NtMapViewOfSection` to map opened section of a DLL to the virtual address space.
 
-So these functions stubs are reimplemented inside `hookdetector/syscalls.cpp`.
+So these functions stubs are reimplemented inside [`hookdetector/syscalls.cpp`](hookdetector/syscall.cpp).
 
 ## Prerequisites
 1. Windows 10+ OS (64-bit).
