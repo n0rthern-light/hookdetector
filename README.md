@@ -14,7 +14,7 @@ The functionality relies on three concepts:
 - `NtOpenSection` to open a handle to `\\KnownDlls32\\<windows-dll-that-need-to-be-tested>.dll`.
 - `NtMapViewOfSection` to map opened section of a DLL to the virtual address space.
 
-So these functions stubs are reimplemented inside `hookdetector/syscalls.cpp`.
+So these functions stubs are reimplemented inside [`hookdetector/syscalls.cpp`](hookdetector/syscall.cpp).
 
 ## Prerequisites
 1. Windows 10+ OS (64-bit).
@@ -28,7 +28,7 @@ So these functions stubs are reimplemented inside `hookdetector/syscalls.cpp`.
 
 *Example output after attaching x32dbg with ScyllaHide's hooks.*
 
-## What could be improved
+## What could have been improved
 1. Since it's possible to place API hooks inside 64-bit DLLs of a WOW64 process - for example, the 64-bit version of `ntdll.dll` could be hooked - these hooks WILL be undetected by the current solution, as 64-bit DLLs aren't accessible from 32-bit mode. This is something to consider implementing in the future to enable DLL scanning also in 64-bit mode.
 2. The current solution compares only the first 16 bytes of a function's prologue, which is insufficient to detect all hooking methods. To improve accuracy, the entire function body should be compared instead.
 3. Some functions are falsely reported as modified (due to byte diff of unknown to me origin). To reduce false positives, additional logic should be implemented or the above mentioned mechanism should be improved.
