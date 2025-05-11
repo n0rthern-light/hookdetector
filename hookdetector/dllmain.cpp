@@ -167,6 +167,7 @@ UINT CalcHash(void* src, UINT size)
     UINT hash = 0x3f94ce13;
 
     for (auto i = 0; i < size; ++i) {
+        //PRINT(L"0x%p\n", ((DWORD)src + i));
         const auto c = *(unsigned char*)((DWORD)src + i);
         hash = (hash >> 5) | (hash << (32 - 5));
         hash ^= c;
@@ -234,18 +235,18 @@ NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
     DWORD64 handle64 = NULL;
     NTSTATUS ret = syscall(0x37, MAKE_X64_PTR(handle64), SECTION_MAP_READ, MAKE_X64_PTR(objAttr));
 
-    if (NT_SUCCESS(ret)) {
-        *pOutHandle = (HANDLE)handle64;
-    }
+if (NT_SUCCESS(ret)) {
+    *pOutHandle = (HANDLE)handle64;
+}
 
-    return ret;
+return ret;
 }
 
 NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 {
     STACK_ALIGN_TO_X64
 
-    DWORD64 outBaseAddr64 = NULL;
+        DWORD64 outBaseAddr64 = NULL;
 
     DWORD64 viewSize = 0;
     DWORD64 sectionOffset = 0;
@@ -257,7 +258,7 @@ NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
 
     DWORD64 processHandle = (DWORD64)-1;
     DWORD64 sectionHandle = (DWORD64)hSection;
-   
+
     NTSTATUS ret = syscall(
         0x28,
         sectionHandle,
@@ -284,7 +285,7 @@ PVOID MapKnownDll(const wchar_t* dllName)
 {
     STACK_ALIGN_TO_X64
 
-    wchar_t knownDllName[0x50];
+        wchar_t knownDllName[0x50];
     wsprintfW(knownDllName, L"\\KnownDlls32\\%ws", dllName);
 
     HANDLE handle = NULL;
@@ -310,7 +311,7 @@ void DetectHooks()
 {
     STACK_ALIGN_TO_X64
 
-    const auto fnModuleIter = [](HMODULE module, ULONG size, PWSTR name) -> bool {
+        const auto fnModuleIter = [](HMODULE module, ULONG size, PWSTR name) -> bool {
         PRINT(L"===================================================\n");
         PRINT(L"> %ws @ 0x%p, size: 0x%x\n", name, module, size);
 
@@ -323,16 +324,22 @@ void DetectHooks()
         typedef struct {
             HMODULE module;
             PVOID knownDll;
+            ULONG moduleSize;
         } procIter_t;
-        procIter_t data { module, knownDll };
+        procIter_t data{ module, knownDll, size };
 
         PRINT(L"> Iterating procedures...\n");
         const auto fnProcIter = [](PVOID fnStart, const char* name, PVOID pParam) -> bool {
-            wchar_t wname[256];
+            wchar_t wname[0x100];
             MultiByteToWideChar(CP_ACP, 0, name, -1, wname, 256);
 
             const auto data = (procIter_t*)pParam;
             const auto offset = (ULONG)fnStart - (ULONG)data->module;
+
+            if ((ULONG)fnStart < (ULONG)data->module || offset > data->moduleSize) {
+                return false;
+            }
+
             const auto knownDllAddr = (PVOID)((ULONG)data->knownDll + offset);
             const auto size = 0x10;
 
@@ -341,7 +348,7 @@ void DetectHooks()
 
             if (moduleProcHash != knownDllProcHash) {
                 PRINT(L"---------------------------------------------------\n");
-                PRINT(L">>> HOOK DETECTED!\n");
+                PRINT(L">>> MODIFICATION DETECTED!\n");
                 PRINT(L">>> %ws @ 0x%p, offset: 0x%x, size: 0x%x, knownDllAddr: 0x%p\n", wname, fnStart, offset, size, knownDllAddr);
                 PRINT(L">>> Expected hash: 0x%x, got: 0x%x\n", knownDllProcHash, moduleProcHash);
             }
@@ -351,10 +358,15 @@ void DetectHooks()
 
         IterateModuleProcs(module, fnProcIter, (PVOID)&data);
 
+        //UnmapViewOfFile(knownDll);
+        PRINT(L"> Procs tested.\n");
+
         return false;
     };
     PRINT(L"Iterating modules...\n");
     IteratePebModules(fnModuleIter);
+
+    PRINT(L"All possible modules tested.\n");
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule,
@@ -367,7 +379,7 @@ BOOL APIENTRY DllMain(HMODULE hModule,
         if (!GetConsoleWindow()) {
             AllocConsole();
         }
-        DetectHooks();
+        CreateThread(0, 0, (LPTHREAD_START_ROUTINE)&DetectHooks, 0, 0, 0);
 
         break;
     case DLL_THREAD_ATTACH:
