@@ -21,9 +21,15 @@
     <ClCompile Include="syscall.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="nt_def.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="syscall.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="nt_def.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

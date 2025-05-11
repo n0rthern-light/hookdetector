@@ -93,3 +93,64 @@ DWORD32 HeavensGateSyscall(HEAVENS_GATE_SYSCALL* pCall)
         mov     ss, cx // http://blog.rewolf.pl/blog/?p=1484
     }
 }
+
+NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle)
+{
+    STACK_ALIGN_TO_X64
+
+    UNICODE_STRING64 uniName;
+    InitUnicodeString64(&uniName, sectionName);
+
+    OBJECT_ATTRIBUTES64 objAttr = { 0 };
+    objAttr.Length = sizeof(objAttr);
+    objAttr.ObjectName = (DWORD64)&uniName;
+    objAttr.Attributes = OBJ_CASE_INSENSITIVE;
+
+    DWORD64 handle64 = NULL;
+    NTSTATUS ret = syscall(0x37, MAKE_X64_PTR(handle64), SECTION_MAP_READ, MAKE_X64_PTR(objAttr));
+
+    if (NT_SUCCESS(ret)) {
+        *pOutHandle = (HANDLE)handle64;
+    }
+
+    return ret;
+}
+
+NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress)
+{
+    STACK_ALIGN_TO_X64
+
+    DWORD64 outBaseAddr64 = NULL;
+
+    DWORD64 viewSize = 0;
+    DWORD64 sectionOffset = 0;
+    DWORD64 zeroBits = 0;
+    DWORD64 commitSize = 0;
+    DWORD64 inherit = 1; // ViewShare
+    DWORD64 allocType = 0;
+    DWORD64 protect = PAGE_READONLY;
+
+    DWORD64 processHandle = (DWORD64)-1;
+    DWORD64 sectionHandle = (DWORD64)hSection;
+
+    NTSTATUS ret = syscall(
+        0x28,
+        sectionHandle,
+        processHandle,
+        MAKE_X64_PTR(outBaseAddr64),
+        NULL,
+        // ---
+        protect,
+        allocType,
+        inherit,
+        MAKE_X64_PTR(viewSize),
+        sectionOffset,
+        commitSize
+    );
+
+    if (outBaseAddr64) {
+        *ppOutAddress = (PVOID)(DWORD)outBaseAddr64;
+    }
+
+    return ret;
+}

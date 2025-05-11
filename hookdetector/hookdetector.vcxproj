@@ -197,9 +197,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="nt_def.cpp" />
     <ClCompile Include="syscall.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="nt_def.hpp" />
     <ClInclude Include="syscall.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

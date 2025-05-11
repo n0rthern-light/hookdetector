@@ -1,7 +1,7 @@
 #ifndef SYSCALL_HPP
 #define SYSCALL_HPP
 
-#include <Windows.h>
+#include "nt_def.hpp"
 
 #define STACK_ALIGN_TO_X64 __asm { and esp, 0xFFFFFFF0 };
 
@@ -78,5 +78,8 @@ __forceinline DWORD32 syscall(
 
     return HeavensGateSyscall(&call);
 }
+
+NTSTATUS SyscallNtOpenSection(PCWSTR sectionName, HANDLE* pOutHandle);
+NTSTATUS SyscallNtMapViewOfSection(HANDLE hSection, PVOID* ppOutAddress);
 
 #endif
